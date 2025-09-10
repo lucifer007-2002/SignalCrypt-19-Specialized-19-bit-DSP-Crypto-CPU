@@ -1,0 +1,336 @@
+module cpu(
+    input wire clk,
+    input wire reset,
+    input wire [18:0] instr_mem_data,
+    input wire [18:0] data_mem_read_data,
+    output wire [18:0] instr_mem_addr,
+    output wire [18:0] data_mem_addr,
+    output wire [18:0] data_mem_write_data,
+    output wire data_mem_read,
+    output wire data_mem_write
+);
+
+// registers for pipelining 
+    reg [18:0] if_id_pc, if_id_instr;
+    reg [18:0] id_ex_pc, id_ex_rs1_data, id_ex_rs2_data, id_ex_imm;
+    reg [3:0] id_ex_rs1, id_ex_rs2, id_ex_rd, id_ex_opcode;
+    reg [2:0] id_ex_func;
+    reg id_ex_reg_write, id_ex_mem_read, id_ex_mem_write, id_ex_mem_to_reg;
+
+    reg [18:0] ex_mem_pc, ex_mem_alu_result, ex_mem_rs2_data;
+    reg [3:0] ex_mem_rd;
+    reg ex_mem_reg_write, ex_mem_mem_read, ex_mem_mem_write, ex_mem_mem_to_reg;
+
+    reg [18:0] mem_wb_pc, mem_wb_alu_result, mem_wb_mem_data;
+    reg [3:0] mem_wb_rd;
+    reg mem_wb_reg_write, mem_wb_mem_to_reg;
+
+//Signals for controling
+    wire stall, flush;
+    wire [1:0] forward_a, forward_b;
+    
+// Program Counter
+    reg [18:0] pc;
+    
+// Register 
+    reg [18:0] registers [0:15];
+    integer i;
+
+// ALU
+    reg [18:0] alu_input_a, alu_input_b, alu_result;
+
+// Control unit O/Ps
+    reg reg_write, mem_read, mem_write, mem_to_reg;
+
+// Instructions
+    wire [3:0] opcode = if_id_instr[18:15];
+    wire [3:0] rs1 = if_id_instr[14:11];
+    wire [3:0] rs2 = if_id_instr[10:7];
+    wire [3:0] rd = if_id_instr[6:3];
+    wire [2:0] func = if_id_instr[2:0];
+    wire [18:0] imm_extended = {{15{if_id_instr[6]}}, if_id_instr[6:3]};
+
+    assign instr_mem_addr = pc;
+    assign data_mem_addr = ex_mem_alu_result;
+    assign data_mem_write_data = ex_mem_rs2_data;
+    assign data_mem_read = ex_mem_mem_read;
+    assign data_mem_write = ex_mem_mem_write;
+
+// Control unit
+    always @(*) begin
+        case(opcode)
+            4'b0000, 4'b0001, 4'b0010, 4'b0011, // ADD, SUB, MUL, DIV
+            4'b0100, 4'b0101, 4'b0110, 4'b0111, // AND, OR, XOR, NOT
+            4'b1101, 4'b1110, 4'b1111: begin    // FFT, ENC, DEC
+                reg_write = 1'b1;
+                mem_read = 1'b0;
+                mem_write = 1'b0;
+                mem_to_reg = 1'b0;
+            end
+            4'b1000: begin // LD
+                reg_write = 1'b1;
+                mem_read = 1'b1;
+                mem_write = 1'b0;
+                mem_to_reg = 1'b1;
+            end
+            4'b1001: begin // ST
+                reg_write = 1'b0;
+                mem_read = 1'b0;
+                mem_write = 1'b1;
+                mem_to_reg = 1'b0;
+            end
+            default: begin
+                reg_write = 1'b0;
+                mem_read = 1'b0;
+                mem_write = 1'b0;
+                mem_to_reg = 1'b0;
+            end
+        endcase
+    end
+
+// Detecting hazards
+    assign stall = (id_ex_mem_read && 
+                   ((id_ex_rd == rs1) || (id_ex_rd == rs2))) ? 1'b1 : 1'b0;
+
+//Logic for Forwarding
+    assign forward_a = (ex_mem_reg_write && (ex_mem_rd != 4'b0) && (ex_mem_rd == id_ex_rs1)) ? 2'b01 :
+                      (mem_wb_reg_write && (mem_wb_rd != 4'b0) && (mem_wb_rd == id_ex_rs1)) ? 2'b10 : 2'b00;
+                      
+    assign forward_b = (ex_mem_reg_write && (ex_mem_rd != 4'b0) && (ex_mem_rd == id_ex_rs2)) ? 2'b01 :
+                      (mem_wb_reg_write && (mem_wb_rd != 4'b0) && (mem_wb_rd == id_ex_rs2)) ? 2'b10 : 2'b00;
+
+    //Multiplexer  forwarding 
+    always @(*) begin
+        case(forward_a)
+            2'b00: alu_input_a = id_ex_rs1_data;
+            2'b01: alu_input_a = ex_mem_alu_result;
+            2'b10: alu_input_a = mem_wb_mem_to_reg ? mem_wb_mem_data : mem_wb_alu_result;
+            default: alu_input_a = id_ex_rs1_data;
+        endcase
+        
+        case(forward_b)
+            2'b00: alu_input_b = id_ex_rs2_data;
+            2'b01: alu_input_b = ex_mem_alu_result;
+            2'b10: alu_input_b = mem_wb_mem_to_reg ? mem_wb_mem_data : mem_wb_alu_result;
+            default: alu_input_b = id_ex_rs2_data;
+        endcase
+    end
+
+// ALU
+    always @(*) begin
+        case(id_ex_opcode)
+            4'b0000: alu_result = alu_input_a + alu_input_b;        // addition
+            4'b0001: alu_result = alu_input_a - alu_input_b;        // subtraction
+            4'b0010: alu_result = alu_input_a * alu_input_b;        // multiplication
+            4'b0011: alu_result = (alu_input_b != 0) ? alu_input_a / alu_input_b : 19'b0; // division
+            4'b0100: alu_result = alu_input_a & alu_input_b;        // and opn
+            4'b0101: alu_result = alu_input_a | alu_input_b;        // or opn
+            4'b0110: alu_result = alu_input_a ^ alu_input_b;        // xor opn
+            4'b0111: alu_result = ~alu_input_a;                     // not opn
+            4'b1000: alu_result = alu_input_a + id_ex_imm;          // LD
+            4'b1001: alu_result = alu_input_a + id_ex_imm;          // ST
+            4'b1101: alu_result = fft_operation(alu_input_a);       // FFT
+            4'b1110: alu_result = encrypt_operation(alu_input_a);   // ENC
+            4'b1111: alu_result = decrypt_operation(alu_input_a);   // DEC
+            default: alu_result = 19'b0;
+        endcase
+    end
+
+    // Specialized operations
+    function [18:0] fft_operation;
+        input [18:0] data;
+        begin
+            // Simplified FFT butterfly operation
+            fft_operation = data + (data >> 1) + (data >> 2);
+        end
+    endfunction
+
+    function [18:0] encrypt_operation;
+        input [18:0] data;
+        begin
+            // Simplified AES-like substitution with rotation
+            encrypt_operation = {data[17:0], data[18]} ^ 19'h55555;
+        end
+    endfunction
+
+    function [18:0] decrypt_operation;
+        input [18:0] data;
+        begin
+            // Simplified AES-like inverse substitution
+            decrypt_operation = ({data[0], data[18:1]} ^ 19'h55555);
+        end
+    endfunction
+
+    // Pipeline control
+    always @(posedge clk) begin
+        if (reset) begin
+            // Reset all pipeline registers and PC
+            pc <= 19'b0;
+            if_id_pc <= 19'b0;
+            if_id_instr <= 19'b0;
+            
+            id_ex_pc <= 19'b0;
+            id_ex_rs1_data <= 19'b0;
+            id_ex_rs2_data <= 19'b0;
+            id_ex_imm <= 19'b0;
+            id_ex_rs1 <= 4'b0;
+            id_ex_rs2 <= 4'b0;
+            id_ex_rd <= 4'b0;
+            id_ex_opcode <= 4'b0;
+            id_ex_func <= 3'b0;
+            id_ex_reg_write <= 1'b0;
+            id_ex_mem_read <= 1'b0;
+            id_ex_mem_write <= 1'b0;
+            id_ex_mem_to_reg <= 1'b0;
+            
+            ex_mem_pc <= 19'b0;
+            ex_mem_alu_result <= 19'b0;
+            ex_mem_rs2_data <= 19'b0;
+            ex_mem_rd <= 4'b0;
+            ex_mem_reg_write <= 1'b0;
+            ex_mem_mem_read <= 1'b0;
+            ex_mem_mem_write <= 1'b0;
+            ex_mem_mem_to_reg <= 1'b0;
+            
+            mem_wb_pc <= 19'b0;
+            mem_wb_alu_result <= 19'b0;
+            mem_wb_mem_data <= 19'b0;
+            mem_wb_rd <= 4'b0;
+            mem_wb_reg_write <= 1'b0;
+            mem_wb_mem_to_reg <= 1'b0;
+            
+            // Initialize registers
+            for (i = 0; i < 16; i = i + 1) begin
+                registers[i] <= 19'b0;
+            end
+            
+        end else if (!stall) begin
+            // IF Stage - Fetch
+            if_id_pc <= pc;
+            if_id_instr <= instr_mem_data;
+            pc <= pc + 19'b1;
+            
+            // ID Stage - Decode and Register Read
+            id_ex_pc <= if_id_pc;
+            id_ex_rs1_data <= (rs1 == 4'b0) ? 19'b0 : registers[rs1];
+            id_ex_rs2_data <= (rs2 == 4'b0) ? 19'b0 : registers[rs2];
+            id_ex_imm <= imm_extended;
+            id_ex_rs1 <= rs1;
+            id_ex_rs2 <= rs2;
+            id_ex_rd <= rd;
+            id_ex_opcode <= opcode;
+            id_ex_func <= func;
+            id_ex_reg_write <= reg_write;
+            id_ex_mem_read <= mem_read;
+            id_ex_mem_write <= mem_write;
+            id_ex_mem_to_reg <= mem_to_reg;
+            
+            // EX Stage - Execute
+            ex_mem_pc <= id_ex_pc;
+            ex_mem_alu_result <= alu_result;
+            ex_mem_rs2_data <= alu_input_b;
+            ex_mem_rd <= id_ex_rd;
+            ex_mem_reg_write <= id_ex_reg_write;
+            ex_mem_mem_read <= id_ex_mem_read;
+            ex_mem_mem_write <= id_ex_mem_write;
+            ex_mem_mem_to_reg <= id_ex_mem_to_reg;
+            
+            // MEM Stage - Memory Access
+            mem_wb_pc <= ex_mem_pc;
+            mem_wb_alu_result <= ex_mem_alu_result;
+            mem_wb_mem_data <= data_mem_read_data;
+            mem_wb_rd <= ex_mem_rd;
+            mem_wb_reg_write <= ex_mem_reg_write;
+            mem_wb_mem_to_reg <= ex_mem_mem_to_reg;
+            
+            // WB Stage - Write Back
+            if (mem_wb_reg_write && mem_wb_rd != 4'b0) begin
+                registers[mem_wb_rd] <= mem_wb_mem_to_reg ? mem_wb_mem_data : mem_wb_alu_result;
+            end
+        end
+    end
+
+endmodule
+
+// Simple Data Memory
+module data_memory(
+    input wire clk,
+    input wire [18:0] addr,
+    input wire [18:0] write_data,
+    input wire read_enable,
+    input wire write_enable,
+    output reg [18:0] read_data
+);
+
+    reg [18:0] memory [0:1023]; // 1K words of data memory
+    
+    // Initialize with some test data
+    initial begin
+        memory[0] = 19'h12345;
+        memory[1] = 19'h67890;
+        memory[2] = 19'hABCDE;
+        memory[3] = 19'h11111;
+    end
+
+    always @(posedge clk) begin
+        if (write_enable) begin
+            memory[addr[9:0]] <= write_data;
+        end
+    end
+    
+    always @(*) begin
+        if (read_enable) begin
+            read_data = memory[addr[9:0]];
+        end else begin
+            read_data = 19'b0;
+        end
+    end
+
+endmodule
+
+// Simple Instruction Memory
+module instruction_memory(
+    input wire [18:0] addr,
+    output reg [18:0] instruction
+);
+
+    reg [18:0] memory [0:1023]; // 1K words of instruction memory
+
+    // Initialize with comprehensive test program
+    initial begin
+        // Arithmetic instructions
+        memory[0]  = 19'b0000_0001_0010_0011_000; // ADD R3, R1, R2
+        memory[1]  = 19'b0001_0011_0001_0100_000; // SUB R4, R3, R1  
+        memory[2]  = 19'b0010_0001_0010_0101_000; // MUL R5, R1, R2
+        memory[3]  = 19'b0011_0101_0010_0110_000; // DIV R6, R5, R2
+        
+        // Logical instructions
+        memory[4]  = 19'b0100_0001_0010_0111_000; // AND R7, R1, R2
+        memory[5]  = 19'b0101_0001_0010_1000_000; // OR R8, R1, R2
+        memory[6]  = 19'b0110_0001_0010_1001_000; // XOR R9, R1, R2
+        memory[7]  = 19'b0111_0001_0000_1010_000; // NOT R10, R1
+        
+        // Memory instructions
+        memory[8]  = 19'b1000_0000_0000_1011_001; // LD R11, 1(R0)
+        memory[9]  = 19'b1001_1011_0000_0000_010; // ST R0, 2(R11)
+        
+        // Specialized DSP/Crypto instructions
+        memory[10] = 19'b1101_1011_0000_1100_000; // FFT R12, R11
+        memory[11] = 19'b1110_1100_0000_1101_000; // ENC R13, R12
+        memory[12] = 19'b1111_1101_0000_1110_000; // DEC R14, R13
+        
+        // More arithmetic for testing hazards
+        memory[13] = 19'b0000_1110_0001_1111_000; // ADD R15, R14, R1
+        memory[14] = 19'b0001_1111_0001_0001_000; // SUB R1, R15, R1
+        
+        // Initialize remaining memory to NOP equivalent
+        for (integer i = 15; i < 1024; i = i + 1) begin
+            memory[i] = 19'b0000_0000_0000_0000_000; // ADD R0, R0, R0 (NOP)
+        end
+    end
+
+    always @(*) begin
+        instruction = memory[addr[9:0]];
+    end
+
+endmodule
