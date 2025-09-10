@@ -6,7 +6,7 @@ module cpu_testbench;
     wire data_mem_read, data_mem_write;
 
     // Instantiate CPU
-    cpu_19bit cpu_inst(
+    cpu cpu_inst(
         .clk(clk),
         .reset(reset),
         .instr_mem_data(instr_mem_data),
