@@ -1,0 +1,32 @@
+# 19-Bit CPU Architecture - Complete Verilog Implementation
+
+## Architecture Overview
+
+This is a specialized 19-bit CPU designed for signal processing and cryptography applications. The architecture features a 5-stage pipeline with dedicated instructions for FFT operations and encryption/decryption.
+
+## Key Features
+- 19-bit instruction width
+- 16 general-purpose registers (R0-R15)
+- 5-stage pipeline (IF, ID, EX, MEM, WB)
+- Specialized DSP and cryptographic instructions
+- Hazard detection and forwarding unit
+- Compatible with EDA Playground
+
+## Instruction Format
+
+```
+Bit Layout: [18:15] [14:11] [10:7] [6:3] [2:0]
+            OPCODE   RS1    RS2   RD/IMM FUNC
+```
+
+## Pipeline Stages
+1. **IF (Instruction Fetch)**: Fetch instruction from memory
+2. **ID (Instruction Decode)**: Decode instruction and read registers
+3. **EX (Execute)**: ALU operations and address calculation
+4. **MEM (Memory Access)**: Load/Store operations
+5. **WB (Write Back)**: Write results back to register file
+
+## Specialized Instructions
+- **FFT**: Fast Fourier Transform operation
+- **ENC**: Encryption using AES-like algorithm
+- **DEC**: Decryption using AES-like algorithm
