@@ -1,6 +1,6 @@
 module cpu_testbench;
 
-    reg clk, reset;
+    reg clk, rst;
     wire [18:0] instr_mem_addr, data_mem_addr, data_mem_write_data;
     wire [18:0] instr_mem_data, data_mem_read_data;
     wire data_mem_read, data_mem_write;
@@ -8,7 +8,7 @@ module cpu_testbench;
     // Instantiate CPU
     cpu cpu_inst(
         .clk(clk),
-        .reset(reset),
+        .rst(rst),
         .instr_mem_data(instr_mem_data),
         .data_mem_read_data(data_mem_read_data),
         .instr_mem_addr(instr_mem_addr),
@@ -53,9 +53,9 @@ module cpu_testbench;
         $display("Time\tPC\tInstruction\tOpcode\tOperation");
        
         
-        reset = 1;
+        rst = 1;
         #25;
-        reset = 0;
+        rst = 0;
         
         // Load initial values into registers R1 and R2
         cpu_inst.registers[1] = 19'h15555;  // Test value 1
