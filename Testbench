@@ -1,123 +1,95 @@
 module cpu_testbench;
-
-    reg clk, rst;
-    wire [18:0] instr_mem_addr, data_mem_addr, data_mem_write_data;
-    wire [18:0] instr_mem_data, data_mem_read_data;
-    wire data_mem_read, data_mem_write;
-
-    // Instantiate CPU
-    cpu cpu_inst(
-        .clk(clk),
-        .rst(rst),
-        .instr_mem_data(instr_mem_data),
-        .data_mem_read_data(data_mem_read_data),
-        .instr_mem_addr(instr_mem_addr),
-        .data_mem_addr(data_mem_addr),
-        .data_mem_write_data(data_mem_write_data),
-        .data_mem_read(data_mem_read),
-        .data_mem_write(data_mem_write)
-    );
-
-    // Instantiate memories
-    instruction_memory imem(
-        .addr(instr_mem_addr),
-        .instruction(instr_mem_data)
-    );
-
-    data_memory dmem(
-        .clk(clk),
-        .addr(data_mem_addr),
-        .write_data(data_mem_write_data),
-        .read_enable(data_mem_read),
-        .write_enable(data_mem_write),
-        .read_data(data_mem_read_data)
-    );
-
-    // Clock generation - 10ns period (100MHz)
-    initial begin
-        clk = 0;
-        forever #5 clk = ~clk;
+  reg clk,rst;
+  wire [18:0] instr_mem_addr, data_mem_addr,data_mem_write_data;
+  wire[18:0] instr_mem_data,data_mem_read_data;
+  wire data_mem_read,data_mem_write;
+  
+  cpu  cpu_inst(
+    .clk(clk),
+    .rst(rst),
+    .instr_mem_data(instr_mem_data),
+    .data_mem_read_data(data_mem_read_data),
+    .instr_mem_addr(instr_mem_addr),
+    .data_mem_addr(data_mem_addr),
+    .data_mem_write_data(data_mem_write_data),
+    .data_mem_read(data_mem_read),
+    .data_mem_write(data_mem_write)
+  );
+  instruction_memory imem(
+    .addr(instr_mem_addr),
+    .instruction(instr_mem_data)
+  );
+  data_memory dmem(
+    .clk(clk),
+    .addr(data_mem_addr),
+    .write_data(data_mem_write_data),
+    .read_enable(data_mem_read),
+    .write_enable(data_mem_write),
+    .read_data(data_mem_read_data)
+  );
+  initial begin
+    clk=0;
+    forever #5 clk = ~clk;
+  end
+  
+  initial begin
+    $dumpfile("cpu_waves.vcd");
+    $dumpvars(0,cpu_testbench);
+    
+    dmem.memory[0] =19'h10000;
+    dmem.memory[1] =19'h20000;
+    dmem.memory[2] =19'h30000;
+    
+    
+    $display("Time\tPC\tInstruction\tOpcode\tOperation");
+    rst =1;
+    #25;
+    rst =0;
+    
+    cpu_inst.registers[1] =19'h15555;
+    cpu_inst.registers[2] =19'h0AAAA;
+    #500;
+    
+    $display("Data Memory Contents");
+    for( integer i=0; i<8; i=i+1) begin
+      $display ("MEM[%0D]:0X%H",i,dmem.memory[i]);
     end
-
-    // Test sequence
-    initial begin
-        $dumpfile("cpu_19bit_waves.vcd");
-        $dumpvars(0, cpu_testbench);
-        
-        // Initialize test data in registers via memory
-        dmem.memory[0] = 19'h10000;  // Test data 1
-        dmem.memory[1] = 19'h20000;  // Test data 2
-        dmem.memory[2] = 19'h30000;  // Test data 3
-        
-      
-        $display("Time\tPC\tInstruction\tOpcode\tOperation");
-       
-        
-        rst = 1;
-        #25;
-        rst = 0;
-        
-        // Load initial values into registers R1 and R2
-        cpu_inst.registers[1] = 19'h15555;  // Test value 1
-        cpu_inst.registers[2] = 19'h0AAAA;  // Test value 2
-        
-        // Run simulation for sufficient cycles to see pipeline operation
-        #500;
-        
-        $display("\nRegister File Contents ");
-        for (integer i = 0; i < 16; i = i + 1) begin
-            $display("R%0d: 0x%h (%0d)", i, cpu_inst.registers[i], cpu_inst.registers[i]);
-        end
-        
-        $display("\n Data Memory Contents ");
-        for (integer i = 0; i < 8; i = i + 1) begin
-            $display("MEM[%0d]: 0x%h", i, dmem.memory[i]);
-        end
-        
-        $display("\n Performance Metrics ");
-        $display("Instructions executed: ~15");
-        $display("Clock cycles: %0d", $time/10);
-      
-        
-        $finish;
-    end
-
-    // Monitor key signals and decode instructions
-    always @(posedge clk) begin
-        if (!rst && instr_mem_addr < 16) begin
-            reg [63:0] op_name;
-            case(instr_mem_data[18:15])
-                4'b0000: op_name = "ADD";
-                4'b0001: op_name = "SUB";
-                4'b0010: op_name = "MUL";
-                4'b0011: op_name = "DIV";
-                4'b0100: op_name = "AND";
-                4'b0101: op_name = "OR ";
-                4'b0110: op_name = "XOR";
-                4'b0111: op_name = "NOT";
-                4'b1000: op_name = "LD ";
-                4'b1001: op_name = "ST ";
-                4'b1101: op_name = "FFT";
-                4'b1110: op_name = "ENC";
-                4'b1111: op_name = "DEC";
-                default: op_name = "NOP";
+    $display("Perrformance metrics");
+    $display("Instructions executed: ~15");
+    $display("clock cycles: %od",$time/10);
+    $finish;
+  end
+  
+  always@(posedge clk) begin
+    if(!rst && instr_mem_addr <16) begin
+      reg[63:0] op_name;
+      case(instr_mem_data[18:15])
+        4'b0000: op_name = "ADD";
+        4'b0001: op_name = "SUB";
+        4'b0001: op_name = "SUB";
+        4'b0010: op_name = "MUL";
+        4'b0011: op_name = "DIV";
+        4'b0100: op_name = "AND";
+        4'b0101: op_name = "OR ";
+        4'b0110: op_name = "XOR";
+        4'b0111: op_name = "NOT";
+        4'b1000: op_name = "LD ";
+        4'b1001: op_name = "ST ";
+        4'b1101: op_name = "FFT";
+        4'b1110: op_name = "ENC";
+        4'b1111: op_name = "DEC";
+        default: op_name = "NOP";
             endcase
-            
-            $display("%0t\t%h\t%h\t%b\t%s", 
-                     $time, instr_mem_addr, instr_mem_data, 
-                     instr_mem_data[18:15], op_name);
-        end
+      $display("%0t\t%h\t%h\t%b\t%s",$time,instr_mem_addr,instr_mem_data,instr_mem_data[18:15],op_name);
     end
-
-    // Monitor pipeline hazards
-    always @(posedge clk) begin
-        if (cpu_inst.stall) begin
-            $display("HAZARD DETECTED at time %0t - Pipeline stalled", $time);
-        end
-        if (cpu_inst.forward_a != 2'b00 || cpu_inst.forward_b != 2'b00) begin
-            $display("FORWARDING at time %0t - ForwardA: %b, ForwardB: %b", 
-                     $time, cpu_inst.forward_a, cpu_inst.forward_b);
-        end
+  end
+  always@(posedge clk) begin
+    if(cpu_inst.stall) begin
+      $display("Hazard detection time %0t - Pipeline stalled",$time);
     end
-
+    if(cpu_inst.forward_a !=2'b00 || cpu_inst.forward_b !=2'b00) begin
+      $display("Forwarding at %0t - ForwardA: %b, ForwardB:%b",
+               $time,cpu_inst.forward_a,cpu_inst.forward_b);
+    end
+  end
 endmodule
