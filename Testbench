@@ -84,7 +84,7 @@ module cpu_testbench;
 
     // Monitor key signals and decode instructions
     always @(posedge clk) begin
-        if (!reset && instr_mem_addr < 16) begin
+        if (!rst && instr_mem_addr < 16) begin
             reg [63:0] op_name;
             case(instr_mem_data[18:15])
                 4'b0000: op_name = "ADD";
