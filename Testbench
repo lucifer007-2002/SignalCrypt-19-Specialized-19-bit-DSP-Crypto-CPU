@@ -1,95 +1,143 @@
-module cpu_testbench;
-  reg clk,rst;
-  wire [18:0] instr_mem_addr, data_mem_addr,data_mem_write_data;
-  wire[18:0] instr_mem_data,data_mem_read_data;
-  wire data_mem_read,data_mem_write;
-  
-  cpu  cpu_inst(
-    .clk(clk),
-    .rst(rst),
-    .instr_mem_data(instr_mem_data),
-    .data_mem_read_data(data_mem_read_data),
-    .instr_mem_addr(instr_mem_addr),
-    .data_mem_addr(data_mem_addr),
-    .data_mem_write_data(data_mem_write_data),
-    .data_mem_read(data_mem_read),
-    .data_mem_write(data_mem_write)
-  );
-  instruction_memory imem(
-    .addr(instr_mem_addr),
-    .instruction(instr_mem_data)
-  );
-  data_memory dmem(
-    .clk(clk),
-    .addr(data_mem_addr),
-    .write_data(data_mem_write_data),
-    .read_enable(data_mem_read),
-    .write_enable(data_mem_write),
-    .read_data(data_mem_read_data)
-  );
-  initial begin
-    clk=0;
-    forever #5 clk = ~clk;
-  end
-  
-  initial begin
-    $dumpfile("cpu_waves.vcd");
-    $dumpvars(0,cpu_testbench);
-    
-    dmem.memory[0] =19'h10000;
-    dmem.memory[1] =19'h20000;
-    dmem.memory[2] =19'h30000;
-    
-    
-    $display("Time\tPC\tInstruction\tOpcode\tOperation");
-    rst =1;
-    #25;
-    rst =0;
-    
-    cpu_inst.registers[1] =19'h15555;
-    cpu_inst.registers[2] =19'h0AAAA;
-    #500;
-    
-    $display("Data Memory Contents");
-    for( integer i=0; i<8; i=i+1) begin
-      $display ("MEM[%0D]:0X%H",i,dmem.memory[i]);
+`define ADD 4'b0001
+`define SUB 4'b0010
+`define LD  4'b0011
+`define ST  4'b0100
+`define FFT 4'b0101
+`define ENC 4'b0110
+`define DEC 4'b0111
+
+`define INSTR(op, rs1, rs2, rd, func) {op, rs1, rs2, rd, func}
+module tb_signalcrypt19;
+
+    reg clk = 0;
+    reg reset = 1;
+
+    // DUT connections
+    wire [18:0] instr_addr;
+    wire [18:0] instr_data;
+
+    // Clock
+    always #5 clk = ~clk;
+
+    // Instantiate DUT
+    signalcrypt19_top dut (
+        .clk(clk),
+        .reset(reset),
+        .instr_mem_data(instr_data),
+        .instr_mem_addr(instr_addr)
+    );
+
+    // Instruction Memory
+    instr_mem_19 imem (
+        .clk(clk),
+        .addr(instr_addr),
+        .instr(instr_data)
+    );
+
+    integer errors = 0;
+
+    // --------- CHECK TASK ----------
+    task check_reg;
+        input [3:0] regnum;
+        input [18:0] expected;
+        begin
+            if (dut.rf.regs[regnum] !== expected) begin
+                $display("❌ ERROR: R%0d = %0d, expected %0d",
+                         regnum,
+                         dut.rf.regs[regnum],
+                         expected);
+                errors = errors + 1;
+            end else begin
+                $display("✅ PASS: R%0d = %0d", regnum, expected);
+            end
+        end
+    endtask
+
+    // --------- TEST SEQUENCE ----------
+    initial begin
+        $dumpfile("signalcrypt19.vcd");
+        $dumpvars(0, tb_signalcrypt19);
+
+        // Reset
+        #10 reset = 1;
+        #20 reset = 0;
+
+        // -----------------------------------------
+        // TEST 1: ALU FORWARDING (ADD → ADD)
+        // R2 = 10, R3 = 20 (preloaded)
+        // R1 = R2 + R3
+        // R4 = R1 + R3 (requires forwarding)
+        // -----------------------------------------
+
+        dut.rf.regs[2] = 10;
+        dut.rf.regs[3] = 20;
+
+        imem.mem[0] = `INSTR(`ADD,4'd2,4'd3,4'd1,3'd0);
+        imem.mem[1] = `INSTR(`ADD,4'd1,4'd3,4'd4,3'd0);
+
+        #100;
+
+        check_reg(1, 30);
+        check_reg(4, 50);
+
+        // -----------------------------------------
+        // TEST 2: LOAD → USE STALL
+        // mem[5] = 99
+        // R6 = mem[5]
+        // R7 = R6 + R3  (must stall)
+        // -----------------------------------------
+
+        dut.dmem.mem[5] = 99;
+
+        imem.mem[2] = `INSTR(`LD,4'd0,4'd0,4'd6,3'd0);
+        imem.mem[3] = `INSTR(`ADD,4'd6,4'd3,4'd7,3'd0);
+
+        #120;
+
+        check_reg(6, 99);
+        check_reg(7, 119);
+
+        // -----------------------------------------
+        // TEST 3: STORE DATA FORWARDING
+        // R8 = R7 + R2
+        // store R8 → mem[10]
+        // -----------------------------------------
+
+        imem.mem[4] = `INSTR(`ADD,4'd7,4'd2,4'd8,3'd0);
+        imem.mem[5] = `INSTR(`ST,4'd0,4'd8,4'd0,3'd0);
+
+        #100;
+
+        if (dut.dmem.mem[0] !== 129) begin
+            $display("❌ ERROR: STORE failed");
+            errors = errors + 1;
+        end else
+            $display("✅ PASS: STORE forwarding");
+
+        // -----------------------------------------
+        // TEST 4: ENC → DEC CORRECTNESS
+        // R9 = ENC(R8)
+        // R10 = DEC(R9)
+        // -----------------------------------------
+
+        imem.mem[6] = `INSTR(`ENC,4'd8,4'd0,4'd9,3'd0);
+        imem.mem[7] = `INSTR(`DEC,4'd9,4'd0,4'd10,3'd0);
+
+        #100;
+
+        check_reg(10, dut.rf.regs[8]);
+
+        // -----------------------------------------
+        // FINAL RESULT
+        // -----------------------------------------
+
+        if (errors == 0)
+            $display("🎉 ALL TESTS PASSED — SignalCrypt-19 VERIFIED");
+        else
+            $display("🔥 TEST FAILED — %0d ERRORS", errors);
+
+        $finish;
     end
-    $display("Perrformance metrics");
-    $display("Instructions executed: ~15");
-    $display("clock cycles: %od",$time/10);
-    $finish;
-  end
-  
-  always@(posedge clk) begin
-    if(!rst && instr_mem_addr <16) begin
-      reg[63:0] op_name;
-      case(instr_mem_data[18:15])
-        4'b0000: op_name = "ADD";
-        4'b0001: op_name = "SUB";
-        4'b0001: op_name = "SUB";
-        4'b0010: op_name = "MUL";
-        4'b0011: op_name = "DIV";
-        4'b0100: op_name = "AND";
-        4'b0101: op_name = "OR ";
-        4'b0110: op_name = "XOR";
-        4'b0111: op_name = "NOT";
-        4'b1000: op_name = "LD ";
-        4'b1001: op_name = "ST ";
-        4'b1101: op_name = "FFT";
-        4'b1110: op_name = "ENC";
-        4'b1111: op_name = "DEC";
-        default: op_name = "NOP";
-            endcase
-      $display("%0t\t%h\t%h\t%b\t%s",$time,instr_mem_addr,instr_mem_data,instr_mem_data[18:15],op_name);
-    end
-  end
-  always@(posedge clk) begin
-    if(cpu_inst.stall) begin
-      $display("Hazard detection time %0t - Pipeline stalled",$time);
-    end
-    if(cpu_inst.forward_a !=2'b00 || cpu_inst.forward_b !=2'b00) begin
-      $display("Forwarding at %0t - ForwardA: %b, ForwardB:%b",
-               $time,cpu_inst.forward_a,cpu_inst.forward_b);
-    end
-  end
+
 endmodule
+
