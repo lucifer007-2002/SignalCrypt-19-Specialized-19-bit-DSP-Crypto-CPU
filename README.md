@@ -32,6 +32,21 @@ The design is written in pure Verilog and validated on Xilinx FPGA targets.
 - Load-use hazard detection with pipeline stall
 - EX/MEM and MEM/WB forwarding paths
 - Store data forwarding supported
+## SIGNALCRYPT-19 — ISA
+[18:15] OPCODE
+[14:11] RS1
+[10:7]  RS2
+[6:3]   RD / IMM
+[2:0]   FUNC
+
+## OPCODES 
+0001 ADD
+0010 SUB
+0011 LD
+0100 ST
+0101 FFT
+0110 ENC
+0111 DEC
 
 
 
