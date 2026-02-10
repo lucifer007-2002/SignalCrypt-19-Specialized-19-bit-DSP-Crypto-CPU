@@ -15,18 +15,18 @@ The design is written in pure Verilog and validated on Xilinx FPGA targets.
 - Industry-grade self-checking testbench
 
 ## Instruction Format
-[18:15] OPCODE
-[14:11] RS1
-[10:7] RS2
-[6:3] RD / IMM
-[2:0] FUNC
+-[18:15] OPCODE
+-[14:11] RS1
+-[10:7] RS2
+-[6:3] RD / IMM
+-[2:0] FUNC
 
 ## Pipeline Stages
-1. Instruction Fetch (IF)
-2. Instruction Decode (ID)
-3. Execute (EX)
-4. Memory Access (MEM)
-5. Write Back (WB)
+-1. Instruction Fetch (IF)
+-2. Instruction Decode (ID)
+-3. Execute (EX)
+-4. Memory Access (MEM)
+-5. Write Back (WB)
 
 ## Hazard Handling
 - Load-use hazard detection with pipeline stall
