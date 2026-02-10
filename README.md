@@ -33,33 +33,6 @@ The design is written in pure Verilog and validated on Xilinx FPGA targets.
 - EX/MEM and MEM/WB forwarding paths
 - Store data forwarding supported
 
-## Repository Structure
-SignalCrypt-19/
-│
-├── rtl/
-│   ├── pipeline_reg.v
-│   ├── regfile_19.v
-│   ├── alu_dsp_crypto_19.v
-│   ├── hazard_unit.v
-│   ├── forwarding_unit.v
-│   ├── instr_mem_19.v
-│   ├── data_mem_19.v
-│   └── signalcrypt19_top.v
-│
-├── tb/
-│   └── tb_signalcrypt19.v
-│
-├── constraints/
-│   └── signalcrypt19.xdc
-│
-├── sim/
-│   └── run_xsim.tcl
-│
-├── docs/
-│   ├── architecture.md
-│   └── pipeline_timing.md
-│
-└── README.md
 
 
 
