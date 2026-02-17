@@ -1,1 +1,251 @@
+#ISA (19-bit) 
+[18:15] OPCODE
+[14:11] RS1
+[10:7]  RS2
+[6:3]   RD / IMM
+[2:0]   FUNC
 
+#pipeline_reg.v
+module pipeline_reg #(parameter W=1)(
+    input clk,
+    input reset,
+    input enable,
+    input [W-1:0] d,
+    output reg [W-1:0] q
+);
+always @(posedge clk) begin
+    if (reset) q <= 0;
+    else if (enable) q <= d;
+end
+endmodule
+# regfile_19.v
+module regfile_19(
+    input clk,
+    input we,
+    input [3:0] rs1,
+    input [3:0] rs2,
+    input [3:0] rd,
+    input [18:0] wd,
+    output [18:0] rd1,
+    output [18:0] rd2
+);
+reg [18:0] regs[0:15];
+
+assign rd1 = (rs1==0) ? 19'd0 : regs[rs1];
+assign rd2 = (rs2==0) ? 19'd0 : regs[rs2];
+
+always @(posedge clk)
+    if (we && rd!=0)
+        regs[rd] <= wd;
+
+endmodule
+#alu_dsp_crypto_19.v
+module alu_dsp_crypto_19(
+    input [18:0] a,
+    input [18:0] b,
+    input [3:0] opcode,
+    input [2:0] func,
+    output reg [18:0] y
+);
+
+always @(*) begin
+    case(opcode)
+        4'b0001: y = a + b;             // ADD
+        4'b0010: y = a - b;             // SUB
+        4'b0101: begin                  // FFT butterfly
+            if (func==3'b000) y = a + b;
+            else y = a - b;
+        end
+        4'b0110: y = a ^ 19'h15555;     // ENC
+        4'b0111: y = a ^ 19'h15555;     // DEC
+        default: y = 0;
+    endcase
+end
+
+endmodule
+#hazard_unit.v
+module hazard_unit(
+    input id_ex_mem_read,
+    input [3:0] id_ex_rd,
+    input [3:0] if_id_rs1,
+    input [3:0] if_id_rs2,
+    output stall
+);
+assign stall =
+    id_ex_mem_read &&
+    ((id_ex_rd == if_id_rs1) ||
+     (id_ex_rd == if_id_rs2));
+endmodule
+
+#forwarding_unit.v
+module forwarding_unit(
+    input ex_mem_reg_write,
+    input mem_wb_reg_write,
+    input [3:0] ex_mem_rd,
+    input [3:0] mem_wb_rd,
+    input [3:0] id_ex_rs1,
+    input [3:0] id_ex_rs2,
+    output reg [1:0] forward_a,
+    output reg [1:0] forward_b
+);
+
+always @(*) begin
+    forward_a = 2'b00;
+    forward_b = 2'b00;
+
+    if (ex_mem_reg_write && ex_mem_rd!=0 &&
+        ex_mem_rd == id_ex_rs1)
+        forward_a = 2'b10;
+
+    if (ex_mem_reg_write && ex_mem_rd!=0 &&
+        ex_mem_rd == id_ex_rs2)
+        forward_b = 2'b10;
+
+    if (mem_wb_reg_write && mem_wb_rd!=0 &&
+        mem_wb_rd == id_ex_rs1)
+        forward_a = 2'b01;
+
+    if (mem_wb_reg_write && mem_wb_rd!=0 &&
+        mem_wb_rd == id_ex_rs2)
+        forward_b = 2'b01;
+end
+endmodule
+#instr_mem_19.v
+module instr_mem_19(
+    input clk,
+    input [18:0] addr,
+    output reg [18:0] instr
+);
+reg [18:0] mem[0:255];
+
+always @(posedge clk)
+    instr <= mem[addr];
+endmodule
+
+#data_mem_19.v
+module data_mem_19(
+    input clk,
+    input mem_read,
+    input mem_write,
+    input [18:0] addr,
+    input [18:0] write_data,
+    output reg [18:0] read_data
+);
+reg [18:0] mem[0:255];
+
+always @(posedge clk) begin
+    if (mem_write)
+        mem[addr] <= write_data;
+
+    if (mem_read)
+        read_data <= mem[addr];
+end
+endmodule
+
+#signalcrypt_core_top.v
+module signalcrypt19_core_top(
+    input clk,
+    input reset
+);
+
+//================ IF =================
+
+reg [18:0] pc;
+wire [18:0] instr;
+
+instr_mem_19 imem(clk, pc, instr);
+
+// IF/ID pipeline
+reg [18:0] if_id_instr;
+always @(posedge clk)
+    if (reset) begin
+        pc <= 0;
+        if_id_instr <= 0;
+    end else begin
+        pc <= pc + 1;
+        if_id_instr <= instr;
+    end
+
+//================ ID =================
+
+wire [3:0] opcode = if_id_instr[18:15];
+wire [3:0] rs1    = if_id_instr[14:11];
+wire [3:0] rs2    = if_id_instr[10:7];
+wire [3:0] rd     = if_id_instr[6:3];
+wire [2:0] func   = if_id_instr[2:0];
+
+wire [18:0] r1, r2;
+
+wire wb_we;
+wire [3:0] wb_rd;
+wire [18:0] wb_data;
+
+regfile_19 rf(
+    clk, wb_we, rs1, rs2,
+    wb_rd, wb_data, r1, r2
+);
+
+// ID/EX pipeline
+reg [18:0] id_ex_r1, id_ex_r2;
+reg [3:0] id_ex_rd;
+reg [3:0] id_ex_opcode;
+reg [2:0] id_ex_func;
+
+always @(posedge clk) begin
+    id_ex_r1 <= r1;
+    id_ex_r2 <= r2;
+    id_ex_rd <= rd;
+    id_ex_opcode <= opcode;
+    id_ex_func <= func;
+end
+
+//================ EX =================
+
+wire [18:0] alu_y;
+
+alu_dsp_crypto_19 alu(
+    id_ex_r1,
+    id_ex_r2,
+    id_ex_opcode,
+    id_ex_func,
+    alu_y
+);
+
+// EX/MEM
+reg [18:0] ex_mem_y;
+reg [3:0] ex_mem_rd;
+
+always @(posedge clk) begin
+    ex_mem_y <= alu_y;
+    ex_mem_rd <= id_ex_rd;
+end
+
+//================ MEM =================
+
+wire [18:0] mem_data;
+
+data_mem_19 dmem(
+    clk,
+    (id_ex_opcode==4'b0011), // LD
+    (id_ex_opcode==4'b0100), // ST
+    ex_mem_y,
+    id_ex_r2,
+    mem_data
+);
+
+// MEM/WB
+reg [18:0] mem_wb_y;
+reg [3:0] mem_wb_rd;
+
+always @(posedge clk) begin
+    mem_wb_y <= (id_ex_opcode==4'b0011) ? mem_data : ex_mem_y;
+    mem_wb_rd <= ex_mem_rd;
+end
+
+//================ WB =================
+
+assign wb_we   = (mem_wb_rd != 0);
+assign wb_rd   = mem_wb_rd;
+assign wb_data = mem_wb_y;
+
+endmodule
