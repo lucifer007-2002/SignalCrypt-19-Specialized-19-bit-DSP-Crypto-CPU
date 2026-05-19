@@ -1,0 +1,118 @@
+`timescale 1ns / 1ps
+//------------------------------------------------------------
+// sc19_top.v
+// SignalCrypt-19 custom ISA CPU — top-level wrapper
+// Target: Xilinx AC701 (XC7A200T-2FBG676)
+// Clock:  200MHz via IBUFDS + BUFG (MMCM added in Part 6)
+//------------------------------------------------------------
+module sc19_top (
+    // Clock — differential LVDS pair from AC701 200MHz oscillator
+    input  wire        sysclk_p,
+    input  wire        sysclk_n,
+
+    // Reset — active-high pushbutton CPU_RESET (U4)
+    input  wire        cpu_reset,
+
+    // Status LEDs (GPIO_LED 0–3)
+    output wire [3:0]  led,
+
+    // UART debug port
+    output wire        uart_tx,
+    input  wire        uart_rx,
+
+    // DIP switches (test mode select)
+    input  wire [3:0]  dip_sw
+);
+
+    //--------------------------------------------------------
+    // Clock input buffer (LVDS → single-ended)
+    //--------------------------------------------------------
+    wire clk_unbuf, clk;
+
+    IBUFDS #(.DIFF_TERM("FALSE"), .IBUF_LOW_PWR("FALSE"))
+    u_ibufds (.I(sysclk_p), .IB(sysclk_n), .O(clk_unbuf));
+
+    BUFG u_bufg (.I(clk_unbuf), .O(clk));
+
+    //--------------------------------------------------------
+    // Internal wires — pipeline interconnects
+    //--------------------------------------------------------
+
+    // IF stage outputs / IF/ID register
+    wire [18:0] if_pc;
+    wire [18:0] if_instr;
+    wire        if_valid;
+
+    // ID/EX pipeline register outputs
+    wire [18:0] id_ex_pc;
+    wire [18:0] id_ex_rs1_data;
+    wire [18:0] id_ex_rs2_data;
+    wire [18:0] id_ex_imm;
+    wire [3:0]  id_ex_rs1_addr;
+    wire [3:0]  id_ex_rs2_addr;
+    wire [3:0]  id_ex_rd_addr;
+    wire [4:0]  id_ex_opcode;
+    wire [2:0]  id_ex_fn;        // function bits from R-type [2:0]
+    // Control signals
+    wire        id_ex_reg_write;
+    wire        id_ex_mem_read;
+    wire        id_ex_mem_write;
+    wire        id_ex_acc_write;
+    wire        id_ex_is_mac;
+    wire        id_ex_is_crypto;
+    wire [1:0]  id_ex_wb_sel;    // 00=ALU, 01=MEM, 10=ACC, 11=crypto
+
+    // EX/WB pipeline register outputs
+    wire [18:0] ex_wb_alu_result;
+    wire [18:0] ex_wb_mem_data;
+    wire [37:0] ex_wb_acc;
+    wire [18:0] ex_wb_crypto_result;
+    wire [3:0]  ex_wb_rd_addr;
+    wire        ex_wb_reg_write;
+    wire [1:0]  ex_wb_wb_sel;
+
+    // WB outputs → register file write port
+    wire [18:0] wb_data;
+    wire [3:0]  wb_rd;
+    wire        wb_reg_write;
+
+    // Hazard / flush controls
+    wire        stall;
+    wire        flush;
+
+    //--------------------------------------------------------
+    // Stage instantiations (stubbed — filled in per part)
+    //--------------------------------------------------------
+
+    // -- Instruction Memory --
+    // instr_mem u_imem ( .clk(clk), .addr(if_pc), .instr(if_instr) );
+
+    // -- IF Stage --
+    // if_stage u_if ( .clk(clk), .rst(cpu_reset), ... );
+
+    // -- ID Stage --
+    // id_stage u_id ( .clk(clk), .rst(cpu_reset), ... );
+
+    // -- EX Stage --
+    // ex_stage u_ex ( .clk(clk), .rst(cpu_reset), ... );
+
+    // -- WB Stage --
+    // wb_stage u_wb ( ... );
+
+    //--------------------------------------------------------
+    // LED status outputs
+    //--------------------------------------------------------
+    reg cpu_running;
+    always @(posedge clk)
+        if (cpu_reset) cpu_running <= 1'b0;
+        else           cpu_running <= 1'b1;
+
+    assign led[0] = cpu_running;          // green = running
+    assign led[1] = (if_instr[18:14] == 5'b11111); // HALT reached
+    assign led[2] = id_ex_acc_write;      // MAC active
+    assign led[3] = id_ex_is_crypto;      // crypto active
+
+    // UART stub — tie off for now
+    assign uart_tx = 1'b1;                // idle high
+
+endmodule
